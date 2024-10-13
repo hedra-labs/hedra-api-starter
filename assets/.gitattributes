@@ -1,0 +1,5 @@
+16_9.jpg filter=lfs diff=lfs merge=lfs -text
+9_16.jpg filter=lfs diff=lfs merge=lfs -text
+1_1.jpg filter=lfs diff=lfs merge=lfs -text
+audio.wav filter=lfs diff=lfs merge=lfs -text
+audio.mp3 filter=lfs diff=lfs merge=lfs -text

@@ -16,7 +16,7 @@ parser.add_argument('--img',required=False,help="image file path")
 parser.add_argument('--img-prompt',required=False)
 parser.add_argument('--audio',required=False,help="audio file path")
 parser.add_argument('--audio-text',required=False)
-parser.add_argument('--voice-id',required=False,default="FGY2WhTYpPnrIDTdsKH5")
+parser.add_argument('--voice-id',required=False)
 parser.add_argument('--ar',required=True)
 parser.add_argument('--canary',action='store_true')
 parser.add_argument('--seed', required=False, default=1)
@@ -67,7 +67,11 @@ if args.audio:
 elif args.audio_text:
     payload["audioSource"] = "tts"
     payload["text"] = args.audio_text
-    payload["voiceId"] = args.voice_id
+    if args.voice_id:
+        payload["voiceId"] = args.voice_id
+    else:
+        cprint('missing --voice-id', color='red')
+        exit(1)
 else:
     cprint('need to set one of --audio and --audio-text', color='red')
     exit(1)

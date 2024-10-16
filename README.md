@@ -23,24 +23,24 @@ Available [here](https://www.hedra.com/docs)
 ## 16:9
 
 ```bash
-python main.py --api-key sk_hedra-*** --audio assets/audio.wav --img assets/16_9.jpg --ar 16:9 --canary
+python main.py --api-key sk_hedra-*** --audio assets/audio.wav --img assets/16_9.jpg --ar 16:9
 ```
 
 ## 9:16
 
 ```bash
-python main.py --api-key sk_hedra-*** --audio assets/audio.wav --img assets/9_16.jpg --ar 9:16 --canary
+python main.py --api-key sk_hedra-*** --audio assets/audio.wav --img assets/9_16.jpg --ar 9:16
 ```
 
 ## 1:1
 
 ```bash
-python main.py --api-key sk_hedra-*** --audio assets/audio.wav --img assets/1:1.jpg --ar 1:1 --canary
+python main.py --api-key sk_hedra-*** --audio assets/audio.wav --img assets/1:1.jpg --ar 1:1
 ```
 
-## tts and image gen
+## Generate audio and images (not public!)
 ```bash
-python main.py --api-key sk_hedra-*** --audio-text "hello world" --voice-id FGY2WhTYpPnrIDTdsKH5 --img-prompt "cow boy" --ar 16:9 --canary
+python main.py --api-key sk_hedra-*** --audio-text "hello world" --voice-id FGY2WhTYpPnrIDTdsKH5 --img-prompt "cow boy" --ar 16:9
 ```
 
 # Questions?

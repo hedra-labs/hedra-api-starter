@@ -17,7 +17,7 @@ parser.add_argument('--img-prompt',required=False)
 parser.add_argument('--audio',required=False,help="audio file path")
 parser.add_argument('--audio-text',required=False)
 parser.add_argument('--voice-id',required=False)
-parser.add_argument('--ar',required=True)
+parser.add_argument("--ar", required=True, choices=["1:1", "9:16", "16:9"])
 parser.add_argument('--canary',action='store_true')
 parser.add_argument('--seed', required=False, default=1)
 

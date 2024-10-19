@@ -38,9 +38,14 @@ python main.py --api-key sk_hedra-*** --audio assets/audio.wav --img assets/9_16
 python main.py --api-key sk_hedra-*** --audio assets/audio.wav --img assets/1:1.jpg --ar 1:1
 ```
 
+## List available voices (how to get the voice ID)
+```bash
+python get_voices.py --api-key sk_hedra-***
+```
+
 ## Generate audio and images
 ```bash
-python main.py --api-key sk_hedra-*** --audio-text "hello world" --voice-id FGY2WhTYpPnrIDTdsKH5 --img-prompt "cow boy" --ar 16:9
+python main.py --api-key sk_hedra-*** --audio-text "hello world" --voice-id FGY2WhTYpPnrIDTdsKH5 --img-prompt "cowboy" --ar 16:9
 ```
 
 # Questions?

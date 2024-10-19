@@ -38,7 +38,7 @@ python main.py --api-key sk_hedra-*** --audio assets/audio.wav --img assets/9_16
 python main.py --api-key sk_hedra-*** --audio assets/audio.wav --img assets/1:1.jpg --ar 1:1
 ```
 
-## Generate audio and images (not public!)
+## Generate audio and images
 ```bash
 python main.py --api-key sk_hedra-*** --audio-text "hello world" --voice-id FGY2WhTYpPnrIDTdsKH5 --img-prompt "cow boy" --ar 16:9
 ```

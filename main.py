@@ -1,128 +1,181 @@
-import requests
-from requests import Response
-import json
-import os
 import argparse
-from typing import Literal
+import os
 import time
-import sys
+import logging
+from dotenv import load_dotenv
+from typing import override
 
-SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-BASE_URL = ' https://mercury.dev.dream-ai.com/api'
+import requests
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--api-key',required=True)
-parser.add_argument('--img',required=False,help="image file path")
-parser.add_argument('--img-prompt',required=False)
-parser.add_argument('--audio',required=False,help="audio file path")
-parser.add_argument('--audio-text',required=False)
-parser.add_argument('--voice-id',required=False)
-parser.add_argument("--ar", required=True, choices=["1:1", "9:16", "16:9"])
-parser.add_argument('--canary',action='store_true')
-parser.add_argument('--seed', required=False, default=1)
-
-args = parser.parse_args()
-
-api_key = args.api_key
-assert api_key is not None and len(api_key) > 0, 'Missing API_KEY'
-
-headers={'X-API-KEY': args.api_key}
-if args.canary:
-    headers["enable-canary"] = "True"
+logger = logging.getLogger()
+logging.basicConfig(level=logging.INFO)
 
 
-def cprint(text, color: Literal['red', 'green', 'blue']):
-    for l in text.splitlines():
-        if color == 'red':
-            print("\033[91m {}\033[00m".format(l))
-        elif color == 'green':
-            print("\033[92m {}\033[00m".format(l))
-        else:
-            print("\033[96m {}\033[00m".format(l))
+class Session(requests.Session):
+    def __init__(self, api_key: str):
+        super().__init__()
+
+        self.base_url: str = "https://api.hedra.com/web-app/public"
+        self.headers["x-api-key"] = api_key
+
+    @override
+    def prepare_request(self, request: requests.Request) -> requests.PreparedRequest:
+        request.url = f"{self.base_url}{request.url}"
+
+        return super().prepare_request(request)
 
 
-def check_response(response: Response, verbose: bool = True):
-    ok = response.status_code < 400
-    color = 'green' if ok else 'red'
-    if verbose:
-        cprint(f'{response.status_code}', color=color)
-        cprint(json.dumps(response.json(), indent=4), color=color)
-    
-    if not ok:
-        cprint('request failed, exit', color='red')
-        exit(1)
+def main():
+    # Load environment variables from .env file
+    load_dotenv()
+    api_key = os.getenv("HEDRA_API_KEY")
 
+    if not api_key:
+        # If api_key is still None, it means it wasn't set in the environment
+        # AND it wasn't found/loaded from the .env file.
+        print("Error: HEDRA_API_KEY not found in environment variables or .env file.")
+        return
 
-payload = {
-    "aspectRatio": args.ar
-}
-
-if args.audio:
-    with open(os.path.join(SCRIPT_DIR, args.audio),'rb') as f:
-        print(f'uploading {args.audio}')
-        audio_response = requests.post(f"{BASE_URL}/v1/audio", headers=headers, files={'file': f})
-        check_response(audio_response)
-        payload["audioSource"] = "audio"
-        payload["voiceUrl"] = audio_response.json()["url"]
-elif args.audio_text:
-    payload["audioSource"] = "tts"
-    payload["text"] = args.audio_text
-    if args.voice_id:
-        payload["voiceId"] = args.voice_id
-    else:
-        cprint('missing --voice-id', color='red')
-        exit(1)
-else:
-    cprint('need to set one of --audio and --audio-text', color='red')
-    exit(1)
-
-
-if args.img:
-    with open(os.path.join(SCRIPT_DIR, args.img),'rb') as f:
-        print(f'uploading {args.img}')
-        image_response = requests.post(f"{BASE_URL}/v1/portrait", headers=headers, files={'file': f}, params={"aspect_ratio": args.ar})
-        check_response(image_response)
-        payload["avatarImage"] = image_response.json()["url"]
-elif args.img_prompt:
-    payload["avatarImageInput"] = {
-        "seed": args.seed,
-        "prompt": args.img_prompt
-    }
-else:
-    cprint('need to set one of --img and --img-prompt', color='red')
-    exit(1)
-
-
-print('initiating video generation')
-project = requests.post(
-    f"{BASE_URL}/v1/characters",
-    headers=headers,
-    json=payload
-)
-check_response(project)
-
-project_id = project.json()['jobId']
-
-print('polling for response')
-while True:
-    video_response = requests.get(
-        f"{BASE_URL}/v1/projects/{project_id}",
-        headers=headers,
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description="Generate video using Hedra API.")
+    parser.add_argument(
+        '--aspect_ratio',
+        type=str,
+        required=True,
+        choices=['16:9', '9:16', '1:1'],
+        help='Aspect ratio for the video (e.g., 16:9, 9:16, 1:1).'
     )
-    check_response(video_response, verbose=False)
-    if video_response.json().get("status") == 'Completed':
-        break
-    if video_response.json().get("status") == 'Failed':
-        cprint(json.dumps(video_response.json(), indent=4), color='red')
-        exit(1)
-    time.sleep(5)
-    sys.stdout.write('.')
-    sys.stdout.flush()
-print()
+    parser.add_argument(
+        '--resolution',
+        type=str,
+        required=True,
+        choices=['540p', '720p'],
+        help='Resolution for the video (e.g., 540p, 720p).'
+    )
+    parser.add_argument(
+        '--text_prompt',
+        type=str,
+        required=True,
+        help='Text prompt describing the desired video content.'
+    )
+    parser.add_argument(
+        '--audio_file',
+        type=str,
+        required=True,
+        help='Path to the input audio file.'
+    )
+    parser.add_argument(
+        '--image',
+        type=str,
+        required=True,
+        help='Path to the input image file.'
+    )
+    parser.add_argument(
+        '--duration',
+        type=float,
+        required=False,
+        default=None,
+        help='Optional duration for the video in seconds (float).'
+    )
+    parser.add_argument(
+        '--seed',
+        type=int,
+        required=False,
+        default=None,
+        help='Optional seed for generation (integer).'
+    )
 
-print('fetching video')
-video_url = video_response.json().get("videoUrl")
-response = requests.get(video_url)
+    # Parse arguments
+    args = parser.parse_args()
 
-with open(f'{project_id}.mp4', 'wb') as f: 
-    f.write(response.content)
+    # Initialize Hedra client
+    session = Session(api_key=api_key)
+
+    logger.info("testing against %s", session.base_url)
+    model_id = session.get("/models").json()[0]["id"]
+    logger.info("got model id %s", model_id)
+
+    image_response = session.post(
+        "/assets",
+        json={"name": os.path.basename(args.image), "type": "image"},
+    )
+    if not image_response.ok:
+        logger.error(
+            "error creating image: %d %s",
+            image_response.status_code,
+            image_response.json(),
+        )
+    image_id = image_response.json()["id"]
+    with open(args.image, "rb") as f:
+        session.post(f"/assets/{image_id}/upload", files={"file": f}).raise_for_status()
+    logger.info("uploaded image %s", image_id)
+
+    audio_id = session.post(
+        "/assets", json={"name": os.path.basename(args.audio_file), "type": "audio"}
+    ).json()["id"]
+    with open(args.audio_file, "rb") as f:
+        session.post(f"/assets/{audio_id}/upload", files={"file": f}).raise_for_status()
+    logger.info("uploaded audio %s", audio_id)
+
+    generation_request_data = {
+        "type": "video",
+        "ai_model_id": model_id,
+        "start_keyframe_id": image_id,
+        "audio_id": audio_id,
+        "generated_video_inputs": {
+            "text_prompt": args.text_prompt,
+            "resolution": args.resolution,
+            "aspect_ratio": args.aspect_ratio,
+        },
+    }
+
+    # Add optional parameters if provided
+    if args.duration is not None:
+        generation_request_data["generated_video_inputs"]["duration_ms"] = int(args.duration * 1000)
+    if args.seed is not None:
+        generation_request_data["generated_video_inputs"]["seed"] = args.seed
+
+    generation_response = session.post(
+        "/generations", json=generation_request_data
+    ).json()
+    logger.info(generation_response)
+    generation_id = generation_response["id"]
+    while True:
+        status_response = session.get(f"/generations/{generation_id}/status").json()
+        logger.info("status response %s", status_response)
+        status = status_response["status"]
+
+        # --- Check for completion or error to break the loop ---
+        if status in ["complete", "error"]:
+            break
+
+        time.sleep(5)
+
+    # --- Process final status (download or log error) ---
+    if status == "complete" and status_response.get("url"):
+        download_url = status_response["url"]
+        # Use asset_id for filename if available, otherwise use generation_id
+        output_filename_base = status_response.get("asset_id", generation_id)
+        output_filename = f"{output_filename_base}.mp4"
+        logger.info(f"Generation complete. Downloading video from {download_url} to {output_filename}")
+        try:
+            # Use a fresh requests get, not the session, as the URL is likely presigned S3
+            with requests.get(download_url, stream=True) as r:
+                r.raise_for_status() # Check if the request was successful
+                with open(output_filename, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            logger.info(f"Successfully downloaded video to {output_filename}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to download video: {e}")
+        except IOError as e:
+            logger.error(f"Failed to save video file: {e}")
+    elif status == "error":
+        logger.error(f"Video generation failed: {status_response.get('error_message', 'Unknown error')}")
+    else:
+        # This case might happen if loop breaks unexpectedly or API changes
+        logger.warning(f"Video generation finished with status '{status}' but no download URL was found.")
+
+
+if __name__ == "__main__":
+    main()

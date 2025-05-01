@@ -6,10 +6,8 @@ This repository provides a Python starter script (`main.py`) for interacting wit
 
 *   **Python 3.8+**
 *   **uv**: A fast Python package installer and resolver. If you don't have it, install it following the instructions at [https://github.com/astral-sh/uv](https://github.com/astral-sh/uv).
-*   **Hedra API Key**: You need an API key from Hedra, Character-3 is in preview, to get the API key
-    * Ensure you're on a paid Hedra plan of at least Creator tier or above.
-    * Ensure you've accepted the API ToS at hedra.com/api-profile
-    * Email sales@hedra.com with subject line "API Access"
+*   **Hedra API Key**: navigate to https://hedra.com/api-profile and accept our terms of service. For volume discounts or use in production reach out to sales@hedra.com
+
 
 ## Setup
 

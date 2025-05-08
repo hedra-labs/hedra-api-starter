@@ -49,23 +49,25 @@ uv run main.py \
     --image <path/to/image.png>
 ```
 
-**Required Arguments:**
+**Command-Line Arguments:**
 
-*   `--aspect_ratio`: Aspect ratio for the video. Choices: `16:9`, `9:16`, `1:1`.
-*   `--resolution`: Resolution for the video. Choices: `540p`, `720p`.
-*   `--text_prompt`: Text prompt describing the desired video content (enclose in quotes if it contains spaces).
-*   `--audio_file`: Path to the input audio file (e.g., `.mp3`, `.wav`).
-*   `--image`: Path to the input image file (e.g., `.png`, `.jpg`).
+*   `--aspect_ratio` (Required): Aspect ratio for the video. Choices: `16:9`, `9:16`, `1:1`.
+*   `--resolution` (Required): Resolution for the video. Choices: `540p`, `720p`.
+*   `--text_prompt` (Required): Text prompt describing the desired video content (enclose in quotes if it contains spaces).
+*   `--audio_file` (Required): Path to the input audio file (e.g., `.mp3`, `.wav`).
+*   `--image` (Required): Path to the input image file (e.g., `.png`, `.jpg`).
+*   `--duration` (Optional): Desired duration for the video in seconds (float). Defaults to the length of the audio if not specified.
+*   `--seed` (Optional): Seed for the generation process (integer). Allows for reproducible results if the model and other parameters are the same.
 
 **Example:**
 
 ```bash
 uv run main.py \
-    --aspect_ratio 16:9 \
-    --resolution 720p \
-    --text_prompt "A cute cat astronaut floating in space" \
-    --audio_file assets/sample_audio.mp3 \
-    --image assets/sample_image.png
+    --aspect_ratio 9:16 \
+    --resolution 540p \
+    --text_prompt "A woman talking at the camera" \
+    --audio_file assets/audio.wav \
+    --image assets/9_16.jpg
 ```
 
 The script will:

@@ -94,6 +94,7 @@ def main():
     logger.info("testing against %s", session.base_url)
     model_id = session.get("/models").json()[0]["id"]
     logger.info("got model id %s", model_id)
+    model_id = "d1dd37a3-e39a-4854-a298-6510289f9cf2"
 
     image_response = session.post(
         "/assets",

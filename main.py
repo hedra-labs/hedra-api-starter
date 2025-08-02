@@ -154,7 +154,7 @@ def main():
 
     # --- Process final status (download or log error) ---
     if status == "complete" and status_response.get("url"):
-        download_url = status_response["url"]
+        download_url = status_response["download_url"]
         # Use asset_id for filename if available, otherwise use generation_id
         output_filename_base = status_response.get("asset_id", generation_id)
         output_filename = f"{output_filename_base}.mp4"

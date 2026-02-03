@@ -61,8 +61,28 @@ def main():
     parser.add_argument(
         '--audio_file',
         type=str,
-        required=True,
-        help='Path to the input audio file.'
+        required=False,
+        default=None,
+        help='Path to the input audio file. Required unless --voice_id and --voice_text are provided.'
+    )
+    parser.add_argument(
+        '--voice_id',
+        type=str,
+        required=False,
+        default=None,
+        help='Voice ID to use for text-to-speech. Use --list_voices to see available voices.'
+    )
+    parser.add_argument(
+        '--voice_text',
+        type=str,
+        required=False,
+        default=None,
+        help='Text to convert to speech using the specified voice_id.'
+    )
+    parser.add_argument(
+        '--list_voices',
+        action='store_true',
+        help='List available voices and exit.'
     )
     parser.add_argument(
         '--image',
@@ -91,6 +111,28 @@ def main():
     # Initialize Hedra client
     session = Session(api_key=api_key)
 
+    # Handle --list_voices flag
+    if args.list_voices:
+        voices = session.get("/voices").json()
+        print(f"\nAvailable voices ({len(voices)} total):\n")
+        print(f"{'ID':<40} {'Name':<20} {'Gender':<10} {'Accent':<15} {'Age':<15}")
+        print("-" * 100)
+        for voice in voices:
+            labels = {l['name']: l['value'] for l in voice.get('asset', {}).get('labels', [])}
+            print(f"{voice['id']:<40} {voice['name']:<20} {labels.get('gender', 'N/A'):<10} {labels.get('accent', 'N/A'):<15} {labels.get('age', 'N/A'):<15}")
+        return
+
+    # Validate audio input
+    if not args.audio_file and not (args.voice_id and args.voice_text):
+        print("Error: Either --audio_file or both --voice_id and --voice_text are required.")
+        return
+    if args.voice_id and not args.voice_text:
+        print("Error: --voice_text is required when using --voice_id.")
+        return
+    if args.voice_text and not args.voice_id:
+        print("Error: --voice_id is required when using --voice_text.")
+        return
+
     logger.info("testing against %s", session.base_url)
     model_id = session.get("/models").json()[0]["id"]
     logger.info("got model id %s", model_id)
@@ -111,24 +153,41 @@ def main():
         session.post(f"/assets/{image_id}/upload", files={"file": f}).raise_for_status()
     logger.info("uploaded image %s", image_id)
 
-    audio_id = session.post(
-        "/assets", json={"name": os.path.basename(args.audio_file), "type": "audio"}
-    ).json()["id"]
-    with open(args.audio_file, "rb") as f:
-        session.post(f"/assets/{audio_id}/upload", files={"file": f}).raise_for_status()
-    logger.info("uploaded audio %s", audio_id)
+    # Handle audio: either upload file or use TTS with voice_id
+    audio_id = None
+    audio_generation = None
+
+    if args.audio_file:
+        audio_id = session.post(
+            "/assets", json={"name": os.path.basename(args.audio_file), "type": "audio"}
+        ).json()["id"]
+        with open(args.audio_file, "rb") as f:
+            session.post(f"/assets/{audio_id}/upload", files={"file": f}).raise_for_status()
+        logger.info("uploaded audio %s", audio_id)
+    else:
+        # Use TTS with voice_id
+        logger.info("using TTS with voice_id %s", args.voice_id)
+        audio_generation = {
+            "type": "text_to_speech",
+            "voice_id": args.voice_id,
+            "text": args.voice_text,
+        }
 
     generation_request_data = {
         "type": "video",
         "ai_model_id": model_id,
         "start_keyframe_id": image_id,
-        "audio_id": audio_id,
         "generated_video_inputs": {
             "text_prompt": args.text_prompt,
             "resolution": args.resolution,
             "aspect_ratio": args.aspect_ratio,
         },
     }
+
+    if audio_id:
+        generation_request_data["audio_id"] = audio_id
+    if audio_generation:
+        generation_request_data["audio_generation"] = audio_generation
 
     # Add optional parameters if provided
     if args.duration is not None:

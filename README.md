@@ -55,12 +55,15 @@ uv run main.py \
 *   `--aspect_ratio` (Required): Aspect ratio for the video. Choices: `16:9`, `9:16`, `1:1`.
 *   `--resolution` (Required): Resolution for the video. Choices: `540p`, `720p`.
 *   `--text_prompt` (Required): Text prompt describing the desired video content (enclose in quotes if it contains spaces).
-*   `--audio_file` (Required): Path to the input audio file (e.g., `.mp3`, `.wav`).
+*   `--audio_file` (Conditional): Path to the input audio file (e.g., `.mp3`, `.wav`). Required unless using `--voice_id` and `--voice_text`.
 *   `--image` (Required): Path to the input image file (e.g., `.png`, `.jpg`).
 *   `--duration` (Optional): Desired duration for the video in seconds (float). Defaults to the length of the audio if not specified.
 *   `--seed` (Optional): Seed for the generation process (integer). Allows for reproducible results if the model and other parameters are the same.
+*   `--voice_id` (Optional): Voice ID to use for text-to-speech generation. Use with `--voice_text`. Use `--list_voices` to see available voices.
+*   `--voice_text` (Optional): Text to convert to speech using the specified `--voice_id`.
+*   `--list_voices` (Optional): List all available voices and exit.
 
-**Example:**
+**Example (with audio file):**
 
 ```bash
 uv run main.py \
@@ -68,6 +71,24 @@ uv run main.py \
     --resolution 540p \
     --text_prompt "A woman talking at the camera" \
     --audio_file assets/audio.wav \
+    --image assets/9_16.jpg
+```
+
+**Example (with text-to-speech):**
+
+First, list available voices:
+```bash
+uv run main.py --list_voices
+```
+
+Then generate a video using a voice:
+```bash
+uv run main.py \
+    --aspect_ratio 9:16 \
+    --resolution 540p \
+    --text_prompt "A woman talking at the camera" \
+    --voice_id "f412c62f-e94f-41c0-bfc6-97f63289941c" \
+    --voice_text "Hello! This is a demonstration of text-to-speech video generation." \
     --image assets/9_16.jpg
 ```
 

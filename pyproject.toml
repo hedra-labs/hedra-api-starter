@@ -1,7 +1,7 @@
 [project]
 name = "hedra-api-starter"
 version = "0.1.0"
-description = "Add your description here"
+description = "A Python starter for Hedra v3 managed inference"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

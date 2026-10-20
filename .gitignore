@@ -1,2 +1,6 @@
 # Environment variables
 .env
+
+.venv/
+__pycache__/
+output.*

@@ -1,241 +1,130 @@
-import argparse
-import os
-import time
-import logging
-from dotenv import load_dotenv
-from typing import override
+"""Submit, estimate, or resume a Hedra v3 inference job."""
+from __future__ import annotations
 
+import argparse
+import json
+import math
+import os
+import sys
+from pathlib import Path
+import time
+from urllib.parse import quote
+from uuid import uuid4
+
+from dotenv import load_dotenv
 import requests
 
-logger = logging.getLogger()
-logging.basicConfig(level=logging.INFO)
+API = "https://api.hedra.com/v3"
 
 
-class Session(requests.Session):
-    def __init__(self, api_key: str):
-        super().__init__()
+class HedraAPI:
+    def __init__(self, key: str):
+        self.session = requests.Session()
+        self.session.headers["Authorization"] = f"Key {key}"
 
-        self.base_url: str = "https://api.hedra.com/web-app/public"
-        self.headers["x-api-key"] = api_key
+    def request(self, method: str, path: str, **kwargs) -> dict:
+        response = self.session.request(method, f"{API}{path}", timeout=30, **kwargs)
+        response.raise_for_status()
+        return response.json()
 
-    @override
-    def prepare_request(self, request: requests.Request) -> requests.PreparedRequest:
-        request.url = f"{self.base_url}{request.url}"
+    def submit(self, model: str, inputs: dict, idempotency_key: str) -> str:
+        return self.request("POST", f"/models/{quote(model, safe='')}", json={
+            "input": inputs, "idempotency_key": idempotency_key,
+        })["job_id"]
 
-        return super().prepare_request(request)
+    def estimate(self, model: str, inputs: dict) -> dict:
+        return self.request("POST", f"/models/{quote(model, safe='')}/estimate",
+                            json={"input": inputs})
+
+    def wait(self, job_id: str, wait_seconds: float, poll_interval: float) -> dict:
+        path = f"/jobs/{quote(job_id, safe='')}"
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Still running: {job_id}. Resume with --job-id {job_id}; do not resubmit.")
+            status = self.request("GET", f"{path}/status")["status"]
+            if status in ("COMPLETED", "FAILED"):
+                result = self.request("GET", path)
+                if status == "FAILED" or result["status"] == "FAILED":
+                    raise RuntimeError(f"Job {job_id} failed: {result.get('error')}")
+                if result["status"] != "COMPLETED":
+                    raise RuntimeError(f"Unexpected result status: {result['status']}")
+                return result
+            if status not in ("IN_QUEUE", "IN_PROGRESS"):
+                raise RuntimeError(f"Unexpected job status: {status}")
+            time.sleep(max(0, min(poll_interval, deadline - time.monotonic())))
 
 
-def main():
-    # Load environment variables from .env file
+def download_first(result: dict, destination: Path) -> None:
+    outputs = result.get("outputs") or []
+    output = outputs[0] if outputs else None
+    if not output or output.get("status") != "COMPLETED" or not output.get("url"):
+        state = output.get("status") if output else "missing"
+        raise RuntimeError(f"First output is {state}; inspect the job before retrying.")
+    # Use a fresh request: never forward the Hedra key to a signed storage URL.
+    with requests.get(output["url"], stream=True, timeout=60) as response:
+        response.raise_for_status()
+        # Exclusive creation avoids silently overwriting an existing local file.
+        with destination.open("xb") as target:
+            for chunk in response.iter_content(chunk_size=65536):
+                if chunk:
+                    target.write(chunk)
+
+
+def positive_number(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        raise argparse.ArgumentTypeError("must be a finite number greater than zero")
+    return number
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", default="gpt-image-2", help="Exact public v3 model ID")
+    parser.add_argument("--input", type=Path, default=Path(__file__).parent / "examples/image.json",
+                        help="JSON file containing the model's input object")
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--estimate", action="store_true", help="Estimate only; creates no job")
+    action.add_argument("--job-id", help="Resume an existing job without submitting")
+    parser.add_argument("--output", type=Path, default=Path("output.png"))
+    parser.add_argument("--wait", type=positive_number, default=600, help="Polling deadline in seconds")
+    parser.add_argument("--poll-interval", type=positive_number, default=5)
+    parser.add_argument("--idempotency-key", help="Reuse only with the same model and input after an ambiguous submit")
+    args = parser.parse_args(argv)
+    if args.idempotency_key and (args.estimate or args.job_id):
+        parser.error("--idempotency-key applies only to a submission")
     load_dotenv()
-    api_key = os.getenv("HEDRA_API_KEY")
+    key = os.getenv("HEDRA_API_KEY")
+    if not key:
+        parser.error("Set HEDRA_API_KEY=<key_id>:<secret> in your environment or .env")
 
-    if not api_key:
-        # If api_key is still None, it means it wasn't set in the environment
-        # AND it wasn't found/loaded from the .env file.
-        print("Error: HEDRA_API_KEY not found in environment variables or .env file.")
-        return
-
-    # Set up argument parser
-    parser = argparse.ArgumentParser(description="Generate video using Hedra API.")
-    parser.add_argument(
-        '--aspect_ratio',
-        type=str,
-        required=True,
-        choices=['16:9', '9:16', '1:1'],
-        help='Aspect ratio for the video (e.g., 16:9, 9:16, 1:1).'
-    )
-    parser.add_argument(
-        '--resolution',
-        type=str,
-        required=True,
-        choices=['540p', '720p'],
-        help='Resolution for the video (e.g., 540p, 720p).'
-    )
-    parser.add_argument(
-        '--text_prompt',
-        type=str,
-        required=True,
-        help='Text prompt describing the desired video content.'
-    )
-    parser.add_argument(
-        '--audio_file',
-        type=str,
-        required=False,
-        default=None,
-        help='Path to the input audio file. Required unless --voice_id and --voice_text are provided.'
-    )
-    parser.add_argument(
-        '--voice_id',
-        type=str,
-        required=False,
-        default=None,
-        help='Voice ID to use for text-to-speech. Use --list_voices to see available voices.'
-    )
-    parser.add_argument(
-        '--voice_text',
-        type=str,
-        required=False,
-        default=None,
-        help='Text to convert to speech using the specified voice_id.'
-    )
-    parser.add_argument(
-        '--list_voices',
-        action='store_true',
-        help='List available voices and exit.'
-    )
-    parser.add_argument(
-        '--image',
-        type=str,
-        required=True,
-        help='Path to the input image file.'
-    )
-    parser.add_argument(
-        '--duration',
-        type=float,
-        required=False,
-        default=None,
-        help='Optional duration for the video in seconds (float).'
-    )
-    parser.add_argument(
-        '--seed',
-        type=int,
-        required=False,
-        default=None,
-        help='Optional seed for generation (integer).'
-    )
-
-    # Parse arguments
-    args = parser.parse_args()
-
-    # Initialize Hedra client
-    session = Session(api_key=api_key)
-
-    # Handle --list_voices flag
-    if args.list_voices:
-        voices = session.get("/voices").json()
-        print(f"\nAvailable voices ({len(voices)} total):\n")
-        print(f"{'ID':<40} {'Name':<20} {'Gender':<10} {'Accent':<15} {'Age':<15}")
-        print("-" * 100)
-        for voice in voices:
-            labels = {l['name']: l['value'] for l in voice.get('asset', {}).get('labels', [])}
-            print(f"{voice['id']:<40} {voice['name']:<20} {labels.get('gender', 'N/A'):<10} {labels.get('accent', 'N/A'):<15} {labels.get('age', 'N/A'):<15}")
-        return
-
-    # Validate audio input
-    if not args.audio_file and not (args.voice_id and args.voice_text):
-        print("Error: Either --audio_file or both --voice_id and --voice_text are required.")
-        return
-    if args.voice_id and not args.voice_text:
-        print("Error: --voice_text is required when using --voice_id.")
-        return
-    if args.voice_text and not args.voice_id:
-        print("Error: --voice_id is required when using --voice_text.")
-        return
-
-    logger.info("testing against %s", session.base_url)
-    model_id = session.get("/models").json()[0]["id"]
-    logger.info("got model id %s", model_id)
-    model_id = "d1dd37a3-e39a-4854-a298-6510289f9cf2"
-
-    image_response = session.post(
-        "/assets",
-        json={"name": os.path.basename(args.image), "type": "image"},
-    )
-    if not image_response.ok:
-        logger.error(
-            "error creating image: %d %s",
-            image_response.status_code,
-            image_response.json(),
-        )
-    image_id = image_response.json()["id"]
-    with open(args.image, "rb") as f:
-        session.post(f"/assets/{image_id}/upload", files={"file": f}).raise_for_status()
-    logger.info("uploaded image %s", image_id)
-
-    # Handle audio: either upload file or use TTS with voice_id
-    audio_id = None
-    audio_generation = None
-
-    if args.audio_file:
-        audio_id = session.post(
-            "/assets", json={"name": os.path.basename(args.audio_file), "type": "audio"}
-        ).json()["id"]
-        with open(args.audio_file, "rb") as f:
-            session.post(f"/assets/{audio_id}/upload", files={"file": f}).raise_for_status()
-        logger.info("uploaded audio %s", audio_id)
-    else:
-        # Use TTS with voice_id
-        logger.info("using TTS with voice_id %s", args.voice_id)
-        audio_generation = {
-            "type": "text_to_speech",
-            "voice_id": args.voice_id,
-            "text": args.voice_text,
-        }
-
-    generation_request_data = {
-        "type": "video",
-        "ai_model_id": model_id,
-        "start_keyframe_id": image_id,
-        "generated_video_inputs": {
-            "text_prompt": args.text_prompt,
-            "resolution": args.resolution,
-            "aspect_ratio": args.aspect_ratio,
-        },
-    }
-
-    if audio_id:
-        generation_request_data["audio_id"] = audio_id
-    if audio_generation:
-        generation_request_data["audio_generation"] = audio_generation
-
-    # Add optional parameters if provided
-    if args.duration is not None:
-        generation_request_data["generated_video_inputs"]["duration_ms"] = int(args.duration * 1000)
-    if args.seed is not None:
-        generation_request_data["generated_video_inputs"]["seed"] = args.seed
-
-    generation_response = session.post(
-        "/generations", json=generation_request_data
-    ).json()
-    logger.info(generation_response)
-    generation_id = generation_response["id"]
-    while True:
-        status_response = session.get(f"/generations/{generation_id}/status").json()
-        logger.info("status response %s", status_response)
-        status = status_response["status"]
-
-        # --- Check for completion or error to break the loop ---
-        if status in ["complete", "error"]:
-            break
-
-        time.sleep(5)
-
-    # --- Process final status (download or log error) ---
-    if status == "complete" and status_response.get("url"):
-        download_url = status_response["download_url"]
-        # Use asset_id for filename if available, otherwise use generation_id
-        output_filename_base = status_response.get("asset_id", generation_id)
-        output_filename = f"{output_filename_base}.mp4"
-        logger.info(f"Generation complete. Downloading video from {download_url} to {output_filename}")
-        try:
-            # Use a fresh requests get, not the session, as the URL is likely presigned S3
-            with requests.get(download_url, stream=True) as r:
-                r.raise_for_status() # Check if the request was successful
-                with open(output_filename, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-            logger.info(f"Successfully downloaded video to {output_filename}")
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to download video: {e}")
-        except IOError as e:
-            logger.error(f"Failed to save video file: {e}")
-    elif status == "error":
-        logger.error(f"Video generation failed: {status_response.get('error_message', 'Unknown error')}")
-    else:
-        # This case might happen if loop breaks unexpectedly or API changes
-        logger.warning(f"Video generation finished with status '{status}' but no download URL was found.")
+    client = HedraAPI(key)
+    try:
+        if not args.estimate and args.output.exists():
+            raise FileExistsError(f"{args.output} exists; choose another --output before submitting.")
+        if args.job_id:
+            job_id = args.job_id
+        else:
+            inputs = json.loads(args.input.read_text())
+            if not isinstance(inputs, dict):
+                raise ValueError("--input must contain a JSON object, without an input wrapper")
+            if args.estimate:
+                print(json.dumps(client.estimate(args.model, inputs), indent=2))
+                return 0
+            idempotency_key = args.idempotency_key or str(uuid4())
+            print(f"Idempotency key: {idempotency_key}", flush=True)
+            job_id = client.submit(args.model, inputs, idempotency_key)
+        print(f"Job: {job_id}", flush=True)
+        result = client.wait(job_id, args.wait, args.poll_interval)
+        download_first(result, args.output)
+        print(f"Saved {args.output}")
+        return 0
+    except (requests.RequestException, OSError, ValueError, KeyError, RuntimeError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        client.session.close()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
